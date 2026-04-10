@@ -1,0 +1,17 @@
+{
+  "records": [
+    {"cpu_usage": 30, "memory_usage": 45, "response_time": 100},
+    {"cpu_usage": 32, "memory_usage": 48, "response_time": 110},
+    {"cpu_usage": 29, "memory_usage": 44, "response_time": 95},
+    {"cpu_usage": 31, "memory_usage": 46, "response_time": 105},
+    {"cpu_usage": 35, "memory_usage": 50, "response_time": 115},
+    {"cpu_usage": 28, "memory_usage": 43, "response_time": 90},
+    {"cpu_usage": 34, "memory_usage": 49, "response_time": 112},
+    {"cpu_usage": 33, "memory_usage": 47, "response_time": 108},
+    {"cpu_usage": 30, "memory_usage": 45, "response_time": 102},
+    {"cpu_usage": 120, "memory_usage": 95, "response_time": 450}
+  ],
+  "contamination": 0.1,
+  "random_state": 42,
+  "n_estimators": 200
+}
