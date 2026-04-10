@@ -10,6 +10,8 @@ from sklearn.ensemble import IsolationForest
 from sklearn.pipeline import Pipeline
 from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler
+from fastapi import File, UploadFile
+from io import StringIO
 
 
 # ============================================================
@@ -71,7 +73,17 @@ class ModelInfoResponse(BaseModel):
     contamination: Optional[float] = None
     n_estimators: Optional[int] = None
 
-
+class TrainCsvRequest(BaseModel):
+    csv_path: str = Field(..., description="Full path of the CSV file")
+    contamination: float = Field(
+        0.05,
+        ge=0.001,
+        le=0.5,
+        description="Expected proportion of anomalies in the data"
+    )
+    random_state: int = 42
+    n_estimators: int = 200
+    
 # ============================================================
 # Utility functions
 # ============================================================
@@ -194,7 +206,128 @@ def train_model(request: TrainRequest):
         "contamination": request.contamination
     }
 
+@app.post("/train-upload-csv")
+async def train_model_upload_csv(
+    file: UploadFile = File(...),
+    contamination: float = 0.05,
+    random_state: int = 42,
+    n_estimators: int = 200
+):
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="Only CSV files are allowed.")
 
+    try:
+        content = await file.read()
+        df = pd.read_csv(StringIO(content.decode("utf-8")))
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unable to read uploaded CSV: {str(e)}"
+        )
+
+    if df.empty:
+        raise HTTPException(status_code=400, detail="CSV file is empty.")
+
+    df = df.select_dtypes(include=[np.number])
+
+    if df.empty:
+        raise HTTPException(status_code=400, detail="No numeric columns found in CSV.")
+
+    if df.shape[0] < 10:
+        raise HTTPException(status_code=400, detail="At least 10 records are recommended for training.")
+
+    pipeline = build_pipeline(
+        contamination=contamination,
+        random_state=random_state,
+        n_estimators=n_estimators
+    )
+
+    pipeline.fit(df)
+
+    metadata = {
+        "algorithm": "IsolationForest",
+        "features": df.columns.tolist(),
+        "contamination": contamination,
+        "n_estimators": n_estimators,
+        "source": file.filename
+    }
+
+    save_model(pipeline, metadata)
+
+    return {
+        "message": "Model trained successfully from uploaded CSV.",
+        "file_name": file.filename,
+        "num_records": len(df),
+        "num_features": len(df.columns),
+        "features": df.columns.tolist(),
+        "model_path": MODEL_PATH
+    }
+    
+@app.post("/train-from-csv")
+def train_model_from_csv(request: TrainCsvRequest):
+    if not os.path.exists(request.csv_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"CSV file not found: {request.csv_path}"
+        )
+
+    try:
+        df = pd.read_csv(request.csv_path)
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unable to read CSV file: {str(e)}"
+        )
+
+    if df.empty:
+        raise HTTPException(
+            status_code=400,
+            detail="CSV file is empty."
+        )
+
+    # Keep only numeric columns
+    df = df.select_dtypes(include=[np.number])
+
+    if df.empty:
+        raise HTTPException(
+            status_code=400,
+            detail="No numeric columns found in CSV."
+        )
+
+    if df.shape[0] < 10:
+        raise HTTPException(
+            status_code=400,
+            detail="At least 10 records are recommended for training."
+        )
+
+    pipeline = build_pipeline(
+        contamination=request.contamination,
+        random_state=request.random_state,
+        n_estimators=request.n_estimators
+    )
+
+    pipeline.fit(df)
+
+    metadata = {
+        "algorithm": "IsolationForest",
+        "features": df.columns.tolist(),
+        "contamination": request.contamination,
+        "n_estimators": request.n_estimators,
+        "source": request.csv_path
+    }
+
+    save_model(pipeline, metadata)
+
+    return {
+        "message": "Model trained successfully from CSV.",
+        "csv_path": request.csv_path,
+        "num_records": len(df),
+        "num_features": len(df.columns),
+        "features": df.columns.tolist(),
+        "model_path": MODEL_PATH,
+        "metadata_path": METADATA_PATH
+    }
+    
 @app.post("/predict", response_model=PredictResponse)
 def predict_anomaly(request: PredictRequest):
     model, metadata = load_model()
